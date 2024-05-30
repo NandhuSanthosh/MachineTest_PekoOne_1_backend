@@ -10,6 +10,10 @@ const chatSchema = new mongoose.Schema({
             type: Date
         }
     }], 
+    lastMessaage: {
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: "messageModel"
+    },
     isGroup: {
         type: Boolean, 
         default: false

@@ -9,7 +9,8 @@ const chatRouter = require('./routes/chatRoutes')
 const { cloudinaryConfig } = require('./configs/cloudinary');
 const mongoConfig = require('./configs/mongo');
 const { errorHandler } = require('./middleware/errorMiddleware');
-const {parser} = require('./middleware/authMiddleware')
+const {parser} = require('./middleware/authMiddleware');
+const applyHandler = require('./socket');
 
 const app = express();
 
@@ -30,6 +31,8 @@ app.use('/', userRouter)
 app.use('/chat', chatRouter)
 app.use(errorHandler)
 
+
+applyHandler()
 cloudinaryConfig()
 mongoConfig().then( (res) => {
     console.log("mongodb connected")

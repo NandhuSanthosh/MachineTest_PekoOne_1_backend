@@ -1,9 +1,11 @@
+const bcrypt = require('bcrypt')
+const mongoose = require("mongoose")
+const jwt = require('jsonwebtoken')
+
 const {upload_single_image} = require("../configs/cloudinary");
 const { ConflictError, ValidationError, UnauthorizedError } = require("../middleware/errorMiddleware");
 const chatModel = require("../model/chatModel");
 const userModel = require("../model/userModel");
-const bcrypt = require('bcrypt')
-const jwt = require('jsonwebtoken')
 
 function createToken(userDetails, id) {
     return jwt.sign(
@@ -155,8 +157,103 @@ module.exports.fetch_all_users = async(req, res, next) => {
 // getting all the chat in which the user is a participant
 module.exports.get_user_chat = async(req, res, next) => {
     try {
-        const userId = req.user.id;
-        const chats = await chatModel.find({"participants.userId": userId}).populate("participants.userId")
+        const userId = new mongoose.Types.ObjectId(req.user.id);
+        // const chats = await chatModel.find({"participants.userId": userId}).populate("participants.userId").populate("lastMessaage")
+        const chats = await chatModel.aggregate([
+            {
+                $match: {
+                    "participants.userId": userId
+                }
+            },
+            {
+                $lookup: {
+                    from: "usermodels",
+                    localField: "participants.userId",
+                    foreignField: "_id",
+                    as: "participants"
+                }
+            },
+            {
+                $lookup: {
+                    from: "messagemodels",
+                    localField: "lastMessaage",
+                    foreignField: "_id",
+                    as: "lastMessaage"
+                }
+            },
+            {
+                $unwind: {
+                    path: "$lastMessaage",
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            // {
+            //     $lookup: {
+            //         from: "messagemodels",
+            //         localField: "_id",
+            //         foreignField: "to",
+            //         as: "lastMessaage"
+            //     }
+            // },
+            {
+                $lookup: {
+                    from: "messagemodels",
+                    let: { chatId: "$_id" },
+                    pipeline: [
+                        { 
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ["$to", "$$chatId"] },
+                                        {
+                                            $not: {
+                                                $in: [
+                                                    userId,
+                                                    {
+                                                        $map: {
+                                                            input: "$readby",
+                                                            as: "readByEntry",
+                                                            in: "$$readByEntry.userId"
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            $count: "unreadCount"
+                        }
+                    ],
+                    as: "unreadMessages"
+                }
+            },
+            {
+                $addFields: {
+                    unreadCount: {
+                        $cond: {
+                            if: { $gt: [{ $size: "$unreadMessages" }, 0] },
+                            then: { $arrayElemAt: ["$unreadMessages.unreadCount", 0] },
+                            else: 0
+                        }
+                    }
+                }
+            },
+            {
+                $project: {
+                    participants: 1,
+                    lastMessaage: 1,
+                    isGroup: 1,
+                    name: 1,
+                    isStarted: 1,
+                    scope: 1,
+                    unreadCount: 1, 
+                    // unreadMessages: 1
+                }
+            }
+        ]);
         res.send({chats})
     } catch (error) {
         next(error)

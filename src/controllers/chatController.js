@@ -23,7 +23,8 @@ module.exports.get_chat_from_userId = async function(req, res, next) {
                     userId: req.user.id, 
                     lastRead: date 
                 }, {
-                    userId: userId
+                    userId: userId, 
+                    lastRead: date
                 }], 
                 isGroup: false, 
                 scope: "private"
@@ -42,15 +43,35 @@ module.exports.get_chat_from_userId = async function(req, res, next) {
 module.exports.fetch_chats_details = async function(req, res, next) {
     try {
         let {chatId, isGroup} = req.query;
+        const date = new Date();
 
         const chatDoc = await chatModel.findById(chatId)
         .populate("participants.userId"); 
+
 
         if(!chatDoc) 
             throw new NotFoundError("Can't find chat!")
 
 
         const messages = await messageModel.find({to: chatId}).sort({time: 1}).limit(50)
+
+
+        let userLastReadTime = chatDoc.participants.filter(x => {
+            return x.userId._id == req.user.id
+        })[0]
+        console.log(userLastReadTime)
+
+
+        // updating message readby
+        const updateMessageReadyBy = await messageModel.updateMany(
+            {to: chatId, time: {$lte: date, $gte: userLastReadTime.lastRead}}, 
+            {$addToSet: {readby: {userId: req.user.id, reatAt: date}}})
+
+        // updating chat lastread
+        userLastReadTime.lastRead = date; 
+        chatDoc.save();
+
+
         chatDoc.messages = messages
 
         const result = {
@@ -92,6 +113,9 @@ module.exports.send_message = async function(req, res, next){
             text: text
         })
 
+        chatDoc.lastMessaage = newMessageDoc._id;
+        chatDoc.save();
+
         res.send(newMessageDoc)
 
     } catch (error) {
@@ -103,11 +127,12 @@ module.exports.send_message = async function(req, res, next){
 module.exports.create_group = async function(req, res, next) {
     try {
        const {name, isPrivate, participants} = req.body;
-
+        const date = new Date()
 
        const groupParticipants = [...participants, req.user.id].map( participant => {
         return {
-            userId: participant
+            userId: participant, 
+            lastRead: date
         }
        })
        
